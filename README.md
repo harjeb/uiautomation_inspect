@@ -13,3 +13,5 @@ pyinstaller -w -F ui_inspect.py
 
 ## demo
 
+![](https://raw.githubusercontent.com/harjeb/uiautomation_inspect/main/screenshot-20230510-170421.png)
+
