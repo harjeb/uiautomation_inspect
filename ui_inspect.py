@@ -1,3 +1,12 @@
+'''
+Author: cjju@nreal.ai
+Date: 2023-05-10 09:50:17
+LastEditors: cjju@nreal.ai
+LastEditTime: 2023-05-16 15:27:49
+Description: 
+
+Copyright (c) 2023 by cjju@nreal.ai, All Rights Reserved. 
+'''
 import sys
 from PyQt5.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem, QWidget, QMessageBox,QMenu, QTableWidgetItem
 import uiautomation as auto
@@ -93,14 +102,15 @@ class Ui_UI_Inspect(object):
 class Get_Tree_Text(QThread):
     tree_text = QtCore.pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, handle_id):
         super(Get_Tree_Text, self).__init__()
-        self.data = {}
+        self.handle_id = handle_id
     
     def run(self):
         try:
             # 获取当前文件所在的绝对路径
-            current_path = os.path.abspath(__file__) 
+            current_path = os.path.realpath(sys.executable)
+            #current_path = os.path.dirname(__file__)
             # 获取该路径下的文件夹路径
             folder_path = os.path.dirname(current_path)
             # 判断文件是否存在，并删除
@@ -111,9 +121,14 @@ class Get_Tree_Text(QThread):
                 except:
                     with open(file_path,'w', encoding='utf-8') as t:
                         t.write('')
-            with auto.UIAutomationInitializerInThread(debug=True):
-                newRoot = auto.GetRootControl()  # ok, root control created in current thread
-                auto.EnumAndLogControl(newRoot)
+            if True:        
+                with auto.UIAutomationInitializerInThread(debug=True):
+                    newRoot = auto.GetRootControl()  # ok, root control created in current thread
+                    auto.EnumAndLogControl(newRoot)
+            else:
+                with auto.UIAutomationInitializerInThread(debug=True):
+                    new = auto.ControlFromHandle(self.handle_id)  # ok, root control created in current thread
+                    auto.EnumAndLogControl(new,5)                
             tree_string = self.get_tree_text("@AutomationLog.txt")
             self.tree_text.emit(tree_string)
         except Exception as e:
@@ -123,8 +138,16 @@ class Get_Tree_Text(QThread):
     def get_tree_text(self, filepath):
         with open(filepath,'r', encoding='utf-8') as t:
             text_lines = t.readlines()[:-1]
-            tree_text = "".join(text_lines) 
-            return tree_text
+            in_block = True
+            newlines = []
+            for i in text_lines:
+                if not i.startswith("ControlType") and in_block:
+                    continue
+                else:
+                    newlines.append(i)
+                    in_block = False
+        tree_text = "".join(newlines) 
+        return tree_text
         
     
 class UI_Inspect_Win(QWidget,Ui_UI_Inspect):
@@ -133,7 +156,7 @@ class UI_Inspect_Win(QWidget,Ui_UI_Inspect):
         self.setupUi(self)
         self.fresh_btn.setEnabled(False)
         self.fresh_btn.setText("初始化中...")
-        self.init_tree =  Get_Tree_Text()
+        self.init_tree =  Get_Tree_Text(0)
         self.init_tree.tree_text.connect(self.get_text)
         self.init_tree.start()
 
@@ -149,14 +172,14 @@ class UI_Inspect_Win(QWidget,Ui_UI_Inspect):
             self.fresh_btn.setEnabled(True)
             print("error pops")
         self.tree_string = tree_text
-        self.build_model(self.tree_string.split("\n"), None, -1)
+        self.build_model(self.tree_string.split("\n"))
         self.fresh_btn.setEnabled(True)
         self.fresh_btn.setText("刷新")
         
     def fresh_tree(self):
         self.treeWidget.clear()
         self.fresh_btn.setEnabled(False)
-        self.fresh_thread = Get_Tree_Text()
+        self.fresh_thread = Get_Tree_Text(592302)
         self.fresh_thread.tree_text.connect(self.get_text)
         self.fresh_thread.start()
 
@@ -188,37 +211,57 @@ class UI_Inspect_Win(QWidget,Ui_UI_Inspect):
         copy_action.triggered.connect(copy)
         self.tableWidget.customContextMenuRequested.connect(lambda pos: menu.exec_(self.tableWidget.mapToGlobal(pos)))
 
-    def build_model(self, lines, parent_item, last_indentation):
-        while lines:
-            line = lines.pop(0)
-            if not line.strip():
-                continue
-            indentation = len(line) - len(line.lstrip())
+    # def build_model(self, lines, parent_item, last_indentation):
+    #     while lines:
+    #         line = lines.pop(0)
+    #         if not line.strip():
+    #             continue
+    #         indentation = len(line) - len(line.lstrip())
+    #         data = self.get_data(line)
+    #         item = QTreeWidgetItem()
+    #         item.setText(0,self.get_controlname(line))
+    #         item.setData(1, Qt.UserRole, data)
+    #         if last_indentation < 0:
+    #             self.treeWidget.addTopLevelItem(item)
+    #             parent_item = item
+    #         elif indentation > last_indentation:
+    #             parent_item.addChild(item)
+    #             parent_item = item  # 更新父级节点
+    #         else:
+    #             while parent_item and indentation <= last_indentation:
+    #                 parent_item = parent_item.parent()
+    #                 last_indentation -= 4
+    #             if parent_item:
+    #                 parent_item.addChild(item)
+    #                 parent_item = item  # 更新父级节点
+    #             else:
+    #                 self.treeWidget.addTopLevelItem(item)
+    #                 parent_item = item
+    #         last_indentation = indentation
+    #         while lines and len(lines[0]) - len(lines[0].lstrip()) > indentation:
+    #             self.build_model(lines, parent_item, indentation)
+    #             if not lines:
+    #                 break
+                
+    def build_model(self, lines):
+        self.treeWidget.setColumnCount(1)
+
+        parents = [self.treeWidget.invisibleRootItem()]
+        current_indent = -1
+
+        for line in lines:
+            indent = len(line) - len(line.lstrip())
+
+            while indent <= current_indent and len(parents) > 1:
+                parents.pop()
+                current_indent -= 4
+            
+            parent = parents[-1]
+            item = QTreeWidgetItem(parent, [self.get_controlname(line)])
             data = self.get_data(line)
-            item = QTreeWidgetItem()
-            item.setText(0,self.get_controlname(line))
             item.setData(1, Qt.UserRole, data)
-            if last_indentation < 0:
-                self.treeWidget.addTopLevelItem(item)
-                parent_item = item
-            elif indentation > last_indentation:
-                parent_item.addChild(item)
-                parent_item = item  # 更新父级节点
-            else:
-                while parent_item and indentation <= last_indentation:
-                    parent_item = parent_item.parent()
-                    last_indentation -= 4
-                if parent_item:
-                    parent_item.addChild(item)
-                    parent_item = item  # 更新父级节点
-                else:
-                    self.treeWidget.addTopLevelItem(item)
-                    parent_item = item
-            last_indentation = indentation
-            while lines and len(lines[0]) - len(lines[0].lstrip()) > indentation:
-                self.build_model(lines, parent_item, indentation)
-                if not lines:
-                    break
+            parents.append(item)
+            current_indent = indent
                 
 
     def get_data(self,line):
@@ -237,9 +280,17 @@ class UI_Inspect_Win(QWidget,Ui_UI_Inspect):
                     result[key] = value.strip()
                 elif len(key_value) == 1 and key_value[0]:
                     result[key_value[0]] = ''
-
-        result["自动化定位代码"] = 'Element("{}",{},"{}","{}")'.format(result["ControlType"],result["Depth"],result["ClassName"] or '',result["Name"] or '')
-        return result
+        try:
+            result["ClassName"] = result["ClassName"].strip("'")
+            result["Name"] = result["Name"].strip("'")
+            result["AutomationId"] = result["AutomationId"].strip("'")
+            if result["AutomationId"] == '':
+                result["自动化定位代码"] = 'Element("{}",{},"{}","{}")'.format(result["ControlType"],result["Depth"],result["ClassName"] or '',result["Name"] or '')
+            else:
+                result["自动化定位代码"] = 'Element("{}",{},"{}","{}",AutomationId="{}")'.format(result["ControlType"],result["Depth"],result["ClassName"] or '',result["Name"] or '',result["AutomationId"])
+            return result
+        except:
+            return None
 
 
 
@@ -267,9 +318,12 @@ class UI_Inspect_Win(QWidget,Ui_UI_Inspect):
                 elif len(key_value) == 1 and key_value[0]:
                     result[key_value[0]] = ''
 
-        control_type = result["ControlType"]
-        name = result["Name"]
-        result_string = f"{control_type}|{name}"
+        try:
+            control_type = result["ControlType"]
+            name = result["Name"]
+            result_string = f"{control_type}|{name}"
+        except:
+            result_string = ''
         return result_string
 
 if __name__ == '__main__':    
